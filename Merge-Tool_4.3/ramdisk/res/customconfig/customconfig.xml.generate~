@@ -1,0 +1,384 @@
+#!/sbin/busybox sh
+
+XML=$CONFIG_XML
+
+echo "" > $XML
+
+echo '
+<settingsRoot>' >> $XML
+
+echo '
+  <settingsTab name="CPU">
+
+    <settingsPane description="Apply the settings on boot only if the desired settings prove to be stable, else the device ends up in a boot-loop. If turned off, the displayed values do not correspond the current live values but the saved profile values, some inconsistencies may occur on applying." 
+                  name="CPU control switch">
+      <checkbox description="If enabled, the below settings will be applied at boot." 
+                name="Set CPU settings on boot" 
+                action="controlswitch CPU"
+                label="Set on boot"/>
+    </settingsPane>
+
+    <settingsPane description="These settings control CFS (Complete Fair Scheduler) Task Scheduler Settings" name="CFS Settings">
+      <checkbox description="Disabling GENTLE_FAIR_SLEEPERS may give you better UI responsiveness." name="GENTLE_FAIR_SLEEPERS" action="schedfeat GENTLE_FAIR_SLEEPERS" label="GENTLE_FAIR_SLEEPERS"/>
+    </settingsPane>
+
+    <settingsPane description="" 
+		name="CPU Idle and Power Settings">
+      <spinner description="Sets the CPU Idle Mode. Idle+LPA is the default and recommended for S3." name="CPU Idle Mode" action="generic /sys/module/cpuidle_exynos4/parameters/enable_mask">
+             <spinnerItem name="Idle + LPA (default)" value="2"/> 
+             <spinnerItem name="AFTR + LPA" value="3"/> 
+             <spinnerItem name="AFTR only" value="1"/> 
+             <spinnerItem name="Idle only" value="0"/> 
+      </spinner>
+      <seekBar description="Sets the sched_mc value which changes the cpu scheduler behaviour for multi-cpu systems. 0 is kernel's default value which turns sched_mc off. Setting it to 1 means that the first core will be tried to be loaded more and setting it to 2 will bias task wake-ups to semi-idle cpu package for power savings. (default: 0)"
+            name="sched_mc" action="generic /sys/devices/system/cpu/sched_mc_power_savings" unit="" min="0" reversed="false" step="1" max="2"/>
+     </settingsPane>
+
+    <settingsPane description="PegasusQ is the default governor for daily running and complete power management schemes. The performance governor is purely for synthetic uses, locking frequency at maximum with all cores online." 
+                  name="Active governor choice">' >> $XML
+echo "
+      <spinner description=\"Set active governor. Default: `cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor`\" 
+               name=\"Current governor\" 
+               action=\"generic /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor\">" >> $XML
+
+for GOVERNOR in `cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors`; do
+  echo "
+        <spinnerItem name=\"$GOVERNOR\" value=\"$GOVERNOR\"/>" >> $XML
+done
+
+echo '
+      </spinner>
+    </settingsPane>
+
+    <settingsPane description="CPU scaling" 
+                  name="CPU voltage control">' >> $XML
+
+echo "
+      <spinner description=\"Set the maximum freqency the CPU scales up to. Default: `cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq | rev | cut -c 4- | rev` MHz.\" 
+               name=\"CPU max frequency\" 
+               action=\"cpugeneric /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq\">" >> $XML
+
+while read FREQ UVOLT; do
+  echo "
+        <spinnerItem name=\"$FREQ MHz\" value=\"${FREQ}000\"/>" >> $XML
+done < /sys/devices/system/cpu/cpu0/cpufreq/UV_uV_table
+
+
+echo "
+      </spinner>
+      <spinner description=\"Set the minimum freqency the CPU scales down to. Default: `cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq | rev | cut -c 4- | rev` MHz.\" 
+               name=\"CPU min frequency\" 
+               action=\"cpugeneric /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq\">" >> $XML
+
+while read FREQ UVOLT; do
+  echo "
+        <spinnerItem name=\"$FREQ MHz\" value=\"${FREQ}000\"/>" >> $XML
+done < /sys/devices/system/cpu/cpu0/cpufreq/UV_uV_table
+
+echo '
+      </spinner>
+    </settingsPane>
+
+    <settingsPane description="Decreasing voltage will lower power consumption of the CPU. Increasing it on overclocked frequencies improves stability. Too low voltage may cause instabilities and freezes." 
+                  name="CPU voltage control">' >> $XML
+
+while read FREQ UVOLT; do
+  echo "
+      <seekBar  description=\"Default voltage: $UVOLTµV\" 
+	        name=\"${FREQ} MHz step\" 
+                action=\"cpuvolt ${FREQ}\"
+                unit=\" µV\" min=\"600000\" reversed=\"false\" step=\"12500\" max=\"1400000\"/>" >> $XML
+  CPUFREQLIST="$CPUFREQLIST $FREQ"
+done < /sys/devices/system/cpu/cpu0/cpufreq/UV_uV_table
+
+echo '
+    </settingsPane>
+  </settingsTab>
+
+  <settingsTab name="I/O">
+    <settingsPane description="Set the active I/O elevator algorithm. The scheduler decides how to handle I/O requests and how to handle them. FIOPS is the everyday recommended default scheduler."  
+                  name="I/O schedulers">' >> $XML
+
+echo "
+      <spinner name=\"Current internal storage scheduler\"
+               action=\"iosched internal /sys/block/mmcblk0/queue/scheduler\">" >> $XML
+
+for IOSCHED in `cat /sys/block/mmcblk0/queue/scheduler | sed -e 's/\]//;s/\[//'`; do
+  echo "
+        <spinnerItem name=\"$IOSCHED\" value=\"$IOSCHED\"/>" >> $XML
+done
+
+echo '
+      </spinner>' >> $XML
+
+echo "
+      <spinner name=\"Current SD card scheduler\"
+               action=\"iosched sd /sys/block/mmcblk1/queue/scheduler\">" >> $XML
+
+for IOSCHED in `cat /sys/block/mmcblk0/queue/scheduler | sed -e 's/\]//;s/\[//'`; do
+  echo "
+        <spinnerItem name=\"$IOSCHED\" value=\"$IOSCHED\"/>" >> $XML
+done
+
+echo '
+      </spinner>
+    </settingsPane>
+
+    <settingsPane name="Dynamic FSync" 
+                  description="fsync() serves as a flush/commit to the write buffer when doing I/O writes to storage. It stores a buffer with data and periodically writes it to the storage device. Disabling it will no longer buffer and directly write the data.">
+
+      <checkbox description="Dynamic FSync disables file write synchronosity during screen-on, and re-enables it on screen-off." 
+                name="Enable dynamic FSync" 
+                action="generic01 /sys/kernel/dyn_fsync/Dyn_fsync_active"
+                label="Enable dynamic FSync"/>
+
+    </settingsPane>
+
+  </settingsTab>
+
+<settingsTab name="Screen">
+
+    <settingsPane description="mobile Digital Natural Image engine control. Samsungs hardware image post-processor controls virtually any image manipulation. All control master switches, if left as delta controls, will negate the sequence setting if checked. Master sequence has SCR and CS enabled by default."
+		  name="Global controls">
+
+      <checkbox  description="Register intercept acts like a hook and will enable catching scenario settings and modifying them through delta controls. If a scenario does not have a setting (register) in its base sequence, then it cannot be modified by the hook."
+                name="Register intercept" 
+                action="generic01 /sys/class/misc/mdnie/hook_intercept"
+                label="Enable register hook"/>
+
+      <checkbox  description="Enabling the master sequence will disable and ignore Samsungs profiles and scenarios, the ROM controls will be disabled."
+                name="Master sequence" 
+                action="generic01 /sys/class/misc/mdnie/sequence_intercept"
+                label="Enable master sequence"/>
+
+    </settingsPane>
+
+    <settingsPane description="Work exclusively on the stock video player."
+		  name="DNR and HDR control">
+
+      <checkbox  description="" 
+                name="Toggle digital noise reduction" 
+                action="generic01 /sys/class/misc/mdnie/hook_control/s_digital_noise_reduction"
+                label="Toggle digital noise reduction for video playback"/>
+
+      <checkbox  description="" 
+                name="Toggle high dynamic range" 
+                action="generic01 /sys/class/misc/mdnie/hook_control/s_high_dynamic_range"
+                label="Toggle HDR for video playback"/>
+
+    </settingsPane>
+
+    <settingsPane description=""
+		  name="Digital edge enhancement control">
+
+      <checkbox  description="" 
+                name="Digital edge enhancement UI master switch" 
+                action="maskvalue 1 /sys/class/misc/mdnie/hook_control/s_edge_enhancement"
+                label="Toggle edge enhancement for user interface"/>
+
+      <checkbox  description="" 
+                name="Digital edge enhancement video master switch" 
+                action="maskvalue 2 /sys/class/misc/mdnie/hook_control/s_edge_enhancement"
+                label="Toggle edge enhancement for video playback"/>
+
+      <seekBar  description=""
+		name="Amount"
+                action="generic-offset B /sys/class/misc/mdnie/hook_control/de_positive_e"
+                unit="" min="-128" reversed="false" step="1" max="128"/>
+
+      <seekBar  description=""
+		name="Radius"
+                action="generic-offset B /sys/class/misc/mdnie/hook_control/de_positive_f"
+                unit="" min="-128" reversed="false" step="1" max="128"/>
+
+      <seekBar  description=""
+		name="Threshold"
+                action="generic-offset B /sys/class/misc/mdnie/hook_control/de_positive_f"
+                unit="" min="-128" reversed="false" step="1" max="128"/>
+
+    </settingsPane>
+
+    <settingsPane description="Chroma saturation works in the HSL colour space, modifying saturation will dilute the hue with white or darken with black. Variations in chroma are achieved by adding different amounts of a neutral gray of the same value as the color you want to alter."
+		  name="Chroma saturation control">
+
+      <checkbox  description="Factory settings override the controls." 
+                name="Chroma saturation factory settings" 
+                action="generic01 /sys/class/misc/mdnie/hook_control/s_factory_chroma_saturation"
+                label="Toggle factory settings"/>
+
+      <seekBar  description="Saturation weight/multipliers for RGB/YCM chroma gains"
+		name="Chroma saturation weight"
+                action="generic-offset B /sys/class/misc/mdnie/hook_control/cs_weight"
+                unit="" min="-16" reversed="false" step="1" max="32"/>
+
+      <seekBar  description=""
+		name="Red gain"
+                action="generic-offset B /sys/class/misc/mdnie/hook_control/cs_red"
+                unit="" min="-16" reversed="false" step="1" max="32"/>
+
+      <seekBar  description=""
+		name="Green gain"
+                action="generic-offset B /sys/class/misc/mdnie/hook_control/cs_green"
+                unit="" min="-16" reversed="false" step="1" max="32"/>
+
+      <seekBar  description=""
+		name="Blue gain"
+                action="generic-offset B /sys/class/misc/mdnie/hook_control/cs_blue"
+                unit="" min="-16" reversed="false" step="1" max="32"/>
+
+      <seekBar  description=""
+		name="Yellow gain"
+                action="generic-offset B /sys/class/misc/mdnie/hook_control/cs_yellow"
+                unit="" min="-16" reversed="false" step="1" max="32"/>
+
+      <seekBar  description=""
+		name="Cyan gain"
+                action="generic-offset B /sys/class/misc/mdnie/hook_control/cs_cyan"
+                unit="" min="-16" reversed="false" step="1" max="32"/>
+
+      <seekBar  description=""
+		name="Magenta gain"
+                action="generic-offset B /sys/class/misc/mdnie/hook_control/cs_magenta"
+                unit="" min="-16" reversed="false" step="1" max="32"/>
+
+    </settingsPane>
+
+    <settingsPane description="Changes white colour temperature"
+		  name="White colour temperature control">
+
+      <checkbox  description="" 
+                name="Colour temperature master switch" 
+                action="generic01 /sys/class/misc/mdnie/hook_control/s_MCM"
+                label="Toggle colour temperature control"/>
+
+      <seekBar  description="Starting point is 6500K."
+		name="Colour temperature"
+                action="generic-offset B /sys/class/misc/mdnie/hook_control/mcm_temperature"
+                unit="00K" min="-20" reversed="false" step="1" max="20"/>
+
+    </settingsPane>
+
+    <settingsPane description="The controls is divided in 8 channels, RGB, YCM, W and K. SCR controls are RGB modifiers on each of the controls altering the primary luminosities on that channel."
+		  name="White colour balance">
+
+      <seekBar  description="Red in white"
+		name="Red"
+                action="generic-offset B /sys/class/misc/mdnie/hook_control/scr_white_red"
+                unit="" min="-64" reversed="false" step="1" max="20"/>
+
+      <seekBar  description="Green in white"
+		name="Green"
+                action="generic-offset B /sys/class/misc/mdnie/hook_control/scr_white_green"
+                unit="" min="-64" reversed="false" step="1" max="20"/>
+
+      <seekBar  description="Blue in white"
+		name="Blue"
+                action="generic-offset B /sys/class/misc/mdnie/hook_control/scr_white_blue"
+                unit="" min="-64" reversed="false" step="1" max="20"/>
+
+    </settingsPane>
+
+    <settingsPane description=""
+		  name="Primary (RGB) colour channels addends">
+
+      <seekBar  description="Red in red channel"
+		name="Red in red"
+                action="generic-offset B /sys/class/misc/mdnie/hook_control/scr_red_red"
+                unit="" min="-64" reversed="false" step="1" max="32"/>
+
+      <seekBar  description="Green in red channel"
+		name="Green in red"
+                action="generic-offset B /sys/class/misc/mdnie/hook_control/scr_red_green"
+                unit="" min="-32" reversed="false" step="1" max="64"/>
+
+      <seekBar  description="Blue in red channel"
+		name="Blue in red"
+                action="generic-offset B /sys/class/misc/mdnie/hook_control/scr_red_blue"
+                unit="" min="-32" reversed="false" step="1" max="64"/>
+
+      <seekBar  description="Red in green channel"
+		name="Red in green"
+                action="generic-offset B /sys/class/misc/mdnie/hook_control/scr_green_red"
+                unit="" min="-32" reversed="false" step="1" max="64"/>
+
+      <seekBar  description="Green in green channel"
+		name="Green in green"
+                action="generic-offset B /sys/class/misc/mdnie/hook_control/scr_green_green"
+                unit="" min="-64" reversed="false" step="1" max="32"/>
+
+      <seekBar  description="Blue in green channel"
+		name="Blue in green"
+                action="generic-offset B /sys/class/misc/mdnie/hook_control/scr_green_blue"
+                unit="" min="-32" reversed="false" step="1" max="64"/>
+
+      <seekBar  description="Red in blue channel"
+		name="Red in blue"
+                action="generic-offset B /sys/class/misc/mdnie/hook_control/scr_blue_red"
+                unit="" min="-32" reversed="false" step="1" max="64"/>
+
+      <seekBar  description="Green in blue channel"
+		name="Green in blue"
+                action="generic-offset B /sys/class/misc/mdnie/hook_control/scr_blue_green"
+                unit="" min="-32" reversed="false" step="1" max="64"/>
+
+      <seekBar  description="Blue in blue channel"
+		name="Blue in blue"
+                action="generic-offset B /sys/class/misc/mdnie/hook_control/scr_blue_blue"
+                unit="" min="-64" reversed="false" step="1" max="32"/>
+
+    </settingsPane>
+
+    <settingsPane description=""
+		  name="Secondary (YCM) colour channels addends">
+
+      <seekBar  description="Red in yellow channel"
+		name="Red in yellow"
+                action="generic-offset B /sys/class/misc/mdnie/hook_control/scr_yellow_red"
+                unit="" min="-64" reversed="false" step="1" max="32"/>
+
+      <seekBar  description="Green in yellow channel"
+		name="Green in yellow"
+                action="generic-offset B /sys/class/misc/mdnie/hook_control/scr_yellow_green"
+                unit="" min="-64" reversed="false" step="1" max="32"/>
+
+      <seekBar  description="Blue in yellow channel"
+		name="Blue in yellow"
+                action="generic-offset B /sys/class/misc/mdnie/hook_control/scr_yellow_blue"
+                unit="" min="-32" reversed="false" step="1" max="64"/>
+
+      <seekBar  description="Red in cyan channel"
+		name="Red in cyan"
+                action="generic-offset B /sys/class/misc/mdnie/hook_control/scr_cyan_red"
+                unit="" min="-32" reversed="false" step="1" max="64"/>
+
+      <seekBar  description="Green in cyan channel"
+		name="Green in cyan"
+                action="generic-offset B /sys/class/misc/mdnie/hook_control/scr_cyan_green"
+                unit="" min="-64" reversed="false" step="1" max="32"/>
+
+      <seekBar  description="Blue in cyan channel"
+		name="Blue in cyan"
+                action="generic-offset B /sys/class/misc/mdnie/hook_control/scr_cyan_blue"
+                unit="" min="-64" reversed="false" step="1" max="32"/>
+
+      <seekBar  description="Red in magenta channel"
+		name="Red in magenta"
+                action="generic-offset B /sys/class/misc/mdnie/hook_control/scr_magenta_red"
+                unit="" min="-64" reversed="false" step="1" max="32"/>
+
+      <seekBar  description="Green in magenta channel"
+		name="Green in magenta"
+                action="generic-offset B /sys/class/misc/mdnie/hook_control/scr_magenta_green"
+                unit="" min="-32" reversed="false" step="1" max="64"/>
+
+      <seekBar  description="Blue in magenta channel"
+		name="Blue in magenta"
+                action="generic-offset B /sys/class/misc/mdnie/hook_control/scr_magenta_blue"
+                unit="" min="-64" reversed="false" step="1" max="32"/>
+
+    </settingsPane>
+  </settingsTab>
+
+</settingsRoot>' >> $XML
+
+chmod 777 $XML

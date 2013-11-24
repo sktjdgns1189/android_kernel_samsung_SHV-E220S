@@ -1,0 +1,4 @@
+internal_iosched=fiops
+sd_iosched=fiops
+internal_read_ahead_kb=256
+sd_read_ahead_kb=1024

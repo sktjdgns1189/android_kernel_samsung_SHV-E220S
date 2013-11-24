@@ -1,0 +1,52 @@
+#!/sbin/busybox sh
+
+mount -o remount,rw /system
+/sbin/busybox mount -t rootfs -o remount,rw rootfs
+
+echo 2 > /sys/devices/system/cpu/sched_mc_power_savings
+
+echo 1 > /sys/class/misc/wolfson_control/switch_master
+
+echo 1 > /sys/class/misc/wolfson_control/switch_fll_tuning
+echo 1 > /sys/class/misc/wolfson_control/switch_oversampling
+echo 1 > /sys/class/misc/wolfson_control/switch_dac_direct
+
+echo 2 > /sys/class/misc/wolfson_control/eq_sp_gain_1
+echo 4 > /sys/class/misc/wolfson_control/eq_sp_gain_2
+echo -12 > /sys/class/misc/wolfson_control/eq_sp_gain_3
+echo -8 > /sys/class/misc/wolfson_control/eq_sp_gain_4
+echo 4 > /sys/class/misc/wolfson_control/eq_sp_gain_5
+
+echo 3 > /sys/class/misc/wolfson_control/switch_eq_headphone
+echo 1 > /sys/class/misc/wolfson_control/switch_eq_speaker
+
+mkswap /dev/block/zram0
+swapon /dev/block/zram0
+echo 90 > /proc/sys/vm/swappiness
+
+echo -1 > /sys/devices/system/gpu/time_in_state
+
+for i in /sys/block/*/queue/add_random;do echo 0 > $i;done
+
+echo 0 > /proc/sys/kernel/randomize_va_space
+
+echo 3 > /sys/module/cpuidle_exynos4/parameters/enable_mask
+
+if [ ! -f /system/app/STweaks.apk ]; then
+  cat /res/STweaks.apk > /system/app/STweaks.apk
+  chown 0.0 /system/app/STweaks.apk
+  chmod 644 /system/app/STweaks.apk
+fi
+
+mkdir -p /mnt/ntfs
+chmod 777 /mnt/ntfs
+mount -o mode=0777,gid=1000 -t tmpfs tmpfs /mnt/ntfs
+
+/res/uci.sh apply
+
+if [ -d /system/etc/init.d ]; then
+  /sbin/busybox run-parts /system/etc/init.d
+fi;
+
+/sbin/busybox mount -t rootfs -o remount,ro rootfs
+mount -o remount,ro /system
